@@ -268,16 +268,22 @@ inline int frequencytoMicroSec(float frequencyinHz){
   return (1000000/512/frequencyinHz);
 }
 
-void setup() {
-  // put your setup code here, to run once:
+void setup_INA219(){
+  // Initialize the INA219.
+  while (ina219.begin()== false) {
+    Serial.println("Failed to find INA219 chip");
+    delay(1000);
+  }
+  // By default the initialization will use the largest range (32V, 2A).  However
+  // you can call a setCalibration function to change this range (see comments).
 
-  delay(2000);
-  Serial.begin(500000);
+  // To use a slightly lower 32V, 1A range (higher precision on amps):
+  //ina219.setCalibration_32V_1A();
+  // Or to use a lower 16V, 400mA range (higher precision on volts and amps):
+  //ina219.setCalibration_16V_400mA();
+}
 
-  pinMode(LEDFORVIDEO,OUTPUT);
-  pinMode(GREENLEDFORVIDEO,OUTPUT);
-  pinMode(BLUELEDFORVIDEO,OUTPUT);
-
+void setup_HX711(){
   //Initialise the load cell
   scale.begin(LOADCELL_DOUT_PIN, LOADCELL_SCK_PIN,128);
 
@@ -312,20 +318,17 @@ void setup() {
   Serial.print("get units: \t\t");
   Serial.println(scale.get_units(5), 1);        // print the average of 5 readings from the ADC minus tare weight, divided
 						// by the SCALE parameter set with set_scale
+}
 
+void setup() {
+  // put your setup code here, to run once:
 
-  // Initialize the INA219.
-  /*  while (ina219.begin()== false) {
-    Serial.println("Failed to find INA219 chip");
-    delay(1000);
-  }*/
-  // By default the initialization will use the largest range (32V, 2A).  However
-  // you can call a setCalibration function to change this range (see comments).
+  delay(2000);
+  Serial.begin(500000);
 
-  // To use a slightly lower 32V, 1A range (higher precision on amps):
-  //ina219.setCalibration_32V_1A();
-  // Or to use a lower 16V, 400mA range (higher precision on volts and amps):
-  //ina219.setCalibration_16V_400mA();
+  pinMode(LEDFORVIDEO,OUTPUT);
+  pinMode(GREENLEDFORVIDEO,OUTPUT);
+  pinMode(BLUELEDFORVIDEO,OUTPUT);
 
 }
 
@@ -465,10 +468,11 @@ void alloff();
 void curvemeasurement(){
   //Serial.println("Amplitude ; Current (mA)");
   int value[] = {255,221,187,153,119,85,51};
-  float freq[] = {
+  /*float freq[] = {
   1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8,8.5,9,9.5,10,
   10.5,11,11.5,12,12.5,13,13.5,14,14.5,15,15.5,16,16.5,17,17.5,18,18.5,19,19.5,20,
-  20.5,21,21.5,22,22.5,23,23.5,24,24.5,25,25.5,26,26.5,27,27.5,28,28.5,29,29.5,30};
+  20.5,21,21.5,22,22.5,23,23.5,24,24.5,25,25.5,26,26.5,27,27.5,28,28.5,29,29.5,30};*/
+  float freq[] = {1};
 
   for(uint16_t k = 0; k<(sizeof(value)/sizeof(value[0]));k++){//change voltage/current
     //Serial.print("Voltage: "); Serial.print(value[k]*12/255); Serial.println(" V");
@@ -514,7 +518,11 @@ void curvemeasurement(){
     }
   }
   alloff();
-  while(1){delay(1000);}
+  while(1){
+  digitalWrite(GREENLEDFORVIDEO, HIGH);
+  digitalWrite(LEDFORVIDEO, HIGH);
+  digitalWrite(BLUELEDFORVIDEO, HIGH);
+  delay(5000);}
 }
 
 void curvemeasurementSine(){
@@ -569,7 +577,11 @@ void curvemeasurementSine(){
   }
 
   alloff();
-  while(1){delay(1000);}
+  while(1){
+  digitalWrite(GREENLEDFORVIDEO, HIGH);
+  digitalWrite(LEDFORVIDEO, HIGH);
+  digitalWrite(BLUELEDFORVIDEO, HIGH);
+  delay(5000);}
 }
 
 void curvemeasurementSineALL(){
@@ -805,6 +817,21 @@ void ReverseUndulationLUT(int phase, int delaytime){//cycle through the LUT to s
     L3.actuatorautomatic(sineLUT512[(amplitude + phase)%512]);
     L2.actuatorautomatic(sineLUT512[(amplitude + (phase*2))%512]);
     L1.actuatorautomatic(sineLUT512[(amplitude + (phase*3))%512]);
+    delayMicroseconds(delaytime);
+  }
+}
+
+void ReverseundulationLUTmultiplier(int phase, int delaytime, float multiplierR[4], float multiplierL[4]){//cycle through the LUT to set the amplitude
+  for (int amplitude = 0; amplitude < 512; amplitude ++){
+    R4.actuatorvariedamplitude(sineLUT512[amplitude%512],multiplierR[0]);
+    R3.actuatorvariedamplitude((sineLUT512[(amplitude + phase)%512]),multiplierR[1]);
+    R2.actuatorvariedamplitude((sineLUT512[(amplitude + (phase*2))%512]),multiplierR[2]);
+    R1.actuatorvariedamplitude((sineLUT512[(amplitude + (phase*3))%512]),multiplierR[3]);
+
+    L4.actuatorvariedamplitude(sineLUT512[amplitude%512],multiplierL[0]);
+    L3.actuatorvariedamplitude((sineLUT512[(amplitude + phase)%512]),multiplierL[1]);
+    L2.actuatorvariedamplitude((sineLUT512[(amplitude + (phase*2))%512]),multiplierL[2]);
+    L1.actuatorvariedamplitude((sineLUT512[(amplitude + (phase*3))%512]),multiplierL[3]);
     delayMicroseconds(delaytime);
   }
 }
@@ -1584,42 +1611,59 @@ void lateral_movement_sweep(float initialFrequency, float endFrequency, float in
     delay(500);
   }
 }
-//void rotation_sweep(float ){;}
 
 //------------------------Force Measurements----------------------//
+//Designed to work with python script for Phidgets Bridge
+//HX711 was vulnerable to noise from actuation current
 void measureForce(){
   int value[] = {255,221,187,153,119,85,51};
   //int value[] = {255,255,255,255,255,255,255};
-  int reading = 0;
-  int readingoff = 0;
-  Serial.println("Value; Reading 1 on; Reading 1 off; Reading 1 Diff; Reading 2 on; Reading 2 off; Reading 2 Diff;Reading 3 on; Reading 3 off; Reading 3 Diff;");
+  //char output [20];
+
+  while(Serial.available() == 0) {
+    if(Serial.read() == 14101066){//Wait for signal from python script
+      delay(100);
+      break;
+    }
+  }
+
+  delay(3000);
+  //Serial.println("Value; Reading 1 on; Reading 1 off; Reading 1 Diff; Reading 2 on; Reading 2 off; Reading 2 Diff;Reading 3 on; Reading 3 off; Reading 3 Diff;");
   for (uint8_t k=0; k<(sizeof(value)/sizeof(value[0]));k++){
-    Serial.print(value[k]);
+    
     for (uint8_t j= 0; j<3; j++){
       //scale.tare(5);
-      //int delaytime = 1000000/value[k];
-      //for (int ramp = 0; ramp <= value[k]; ramp++){
-        L4.actuatorpush(value[k]);
-        //delayMicroseconds(delaytime);
-      //}
+      int delaytime = 1000000/value[k];
+      for (int ramp = 0; ramp <= value[k]; ramp++){
+        L4.actuatorpush(ramp);
+        delayMicroseconds(delaytime);
+      }
+      Serial.println(value[k]);
+      Serial.println(22051455);
+      L4.actuatorpush(value[k]);
       delay(200);
-      reading = scale.get_value(1);
-      L4.actuatorpull();
-      delay(5);
+      
+      //reading = scale.get_value(1);
+      //L4.actuatorpull();
+      //delay(5);
       L4.actuatoroff();
-      readingoff = scale.get_value(1);
+      Serial.println(0);
+      Serial.println(16061487);
 
+      //readingoff = scale.get_value(1);
+      /*
       Serial.print(";");
       Serial.print(reading);
       Serial.print(";");
       Serial.print(readingoff);
       Serial.print(";");
-      Serial.print(reading-readingoff);
+      Serial.print(reading-readingoff);*/
       delay(2000);
     }
-    Serial.println();
+    //Serial.println();
     delay(7000);
   }
+  Serial.print("END");
   while(1){delay(10000);}
 }
 
@@ -1640,20 +1684,36 @@ void jellyfish_standard(finray fr, int num_cycles, int ontime, int offtime){
   }
 }
 
+float rightM[] = {0,0,1,1};
+//float leftM[] = {1,1,1,1};
+
 
 void loop() {
-  while(1){
-    //Serial.println(scale.get_value(3));
-    delay(1000);
-    measureForce();
-  }
+
   // put your main code here, to run repeatedly:
 
   //initialsetup();
 
 
   //leftundulation(60,1000);
-  //undulationLUT(wavetophase(36),frequencytoMicroSec(2));
+  //for (int i = 10.5; i <= 42; i += 5.25){
+  //  for (int j = 0; j < 10; j++){
+  //ReverseUndulationLUT(wavetophase(26.25),frequencytoMicroSec(2.5));
+
+
+
+  //  }
+  //  delay(3000);
+  //}
+
+  //alloff();
+  //while(1){
+  //  delay(5000);
+  //}
+
+  //undulationLUTfloat(frequencytoMicroSec(1.5),230);
+    //flashRED(5);
+
   //ReverseUndulationLUT(wavetophase(32),1300);
   
   
@@ -1673,6 +1733,8 @@ void loop() {
   //pathDemoZigZag();
   //leftundulation(0,800);
 
+  //--------------------------------Force Measurement--------------------------------
+  //measureForce();
 
   //--------------------------------SINGLE ACTUATOR CHARACTERISATION---------------------------
   //curvemeasurement();
@@ -1688,9 +1750,9 @@ void loop() {
   //--------------------------------SWIMMING CHARACTERISATION----------------------------------
         //Straight
   //wavelength_frequency_sweep(5.25,42,5.25,0.5,5,0.5,6);
-  //wavelength_frequency_sweep(10.5,10.5,5.25,0.5,5,0.5,6);
+  //wavelength_frequency_sweep(26.25,26.25,5.25,0.5,5,0.5,6);
         //Turning
-  //wavelength_frequency_sweep_turn(5.25,42,5.25,0.5,5,0.5,6);
+  //wavelength_frequency_sweep_turn(42,42,5.25,0.5,5,0.5,6);
         //Lateral
   //frequency_sweep_flapping(1,14,0.5,5);
         //Banking
@@ -1699,6 +1761,11 @@ void loop() {
   //diagonal();
         //SinkFloat
   //floatsink();
+
+  //----------------------ENVELOPE-----------
+ReverseundulationLUTmultiplier(wavetophase(26.25),frequencytoMicroSec(2.5),rightM,rightM);
+
+  //possibly ran this at 2.5Hz
 
 /*
   for(int i = 0; i <10; i++){
