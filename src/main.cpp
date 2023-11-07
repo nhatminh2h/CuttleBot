@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <Adafruit_INA219.h>
 #include <HX711.h>
+#include <Arduino_FreeRTOS.h>
 
 #define LEDFORVIDEO 45
 #define GREENLEDFORVIDEO 43
@@ -72,12 +73,17 @@
 #define LEFT_4_A   30
 #define LEFT_4_B   31
 #define LEFT_4_PWM 5
+
 #endif
 
-Adafruit_INA219 ina219;//current sensor
+#define FIN_LENGTH 10.5
+
+//Declare current sensor
+Adafruit_INA219 ina219;
 float datalog[LUT_SIZE][2];
 uint16_t logPosition = 0;
 
+//Declar loadcell
 HX711 scale;//load cell
 const int LOADCELL_DOUT_PIN = 20;
 const int LOADCELL_SCK_PIN = 21;
@@ -147,7 +153,142 @@ void sendcurrentdata(){
   }
 }
 
+/*const int sineLUT512[512] = //values between 0-512
+{
+256,259,262,265,269,272,275,278,
+281,284,287,290,294,297,300,303,
+306,309,312,315,318,321,324,327,
+330,333,336,339,342,345,348,351,
+354,357,360,363,365,368,371,374,
+377,379,382,385,388,390,393,396,
+398,401,403,406,408,411,413,416,
+418,421,423,426,428,430,433,435,
+437,439,441,444,446,448,450,452,
+454,456,458,460,462,463,465,467,
+469,471,472,474,476,477,479,480,
+482,483,485,486,487,489,490,491,
+493,494,495,496,497,498,499,500,
+501,502,503,504,504,505,506,506,
+507,508,508,509,509,510,510,510,
+511,511,511,512,512,512,512,512,
+512,512,512,512,512,512,511,511,
+511,510,510,510,509,509,508,508,
+507,506,506,505,504,504,503,502,
+501,500,499,498,497,496,495,494,
+493,491,490,489,487,486,485,483,
+482,480,479,477,476,474,472,471,
+469,467,465,463,462,460,458,456,
+454,452,450,448,446,444,441,439,
+437,435,433,430,428,426,423,421,
+418,416,413,411,408,406,403,401,
+398,396,393,390,388,385,382,379,
+377,374,371,368,365,363,360,357,
+354,351,348,345,342,339,336,333,
+330,327,324,321,318,315,312,309,
+306,303,300,297,294,290,287,284,
+281,278,275,272,269,265,262,259,
+256,253,250,247,243,240,237,234,
+231,228,225,222,218,215,212,209,
+206,203,200,197,194,191,188,185,
+182,179,176,173,170,167,164,161,
+158,155,152,149,147,144,141,138,
+135,133,130,127,124,122,119,116,
+114,111,109,106,104,101,99,96,
+94,91,89,86,84,82,79,77,
+75,73,71,68,66,64,62,60,
+58,56,54,52,50,49,47,45,
+43,41,40,38,36,35,33,32,
+30,29,27,26,25,23,22,21,
+19,18,17,16,15,14,13,12,
+11,10,9,8,8,7,6,6,
+5,4,4,3,3,2,2,2,
+1,1,1,0,0,0,0,0,
+0,0,0,0,0,0,1,1,
+1,2,2,2,3,3,4,4,
+5,6,6,7,8,8,9,10,
+11,12,13,14,15,16,17,18,
+19,21,22,23,25,26,27,29,
+30,32,33,35,36,38,40,41,
+43,45,47,49,50,52,54,56,
+58,60,62,64,66,68,71,73,
+75,77,79,82,84,86,89,91,
+94,96,99,101,104,106,109,111,
+114,116,119,122,124,127,130,133,
+135,138,141,144,147,149,152,155,
+158,161,164,167,170,173,176,179,
+182,185,188,191,194,197,200,203,
+206,209,212,215,218,222,225,228,
+231,234,237,240,243,247,250,253,
+};
+*/
 
+const int16_t sineLUT512[512] //(-256 to 256)
+{
+0,3,6,9,13,16,19,22, 
+25,28,31,34,38,41,44,47, 
+50,53,56,59,62,65,68,71, 
+74,77,80,83,86,89,92,95, 
+98,101,104,107,109,112,115,118, 
+121,123,126,129,132,134,137,140, 
+142,145,147,150,152,155,157,160, 
+162,165,167,170,172,174,177,179, 
+181,183,185,188,190,192,194,196, 
+198,200,202,204,206,207,209,211, 
+213,215,216,218,220,221,223,224, 
+226,227,229,230,231,233,234,235, 
+237,238,239,240,241,242,243,244, 
+245,246,247,248,248,249,250,250, 
+251,252,252,253,253,254,254,254, 
+255,255,255,256,256,256,256,256, 
+256,256,256,256,256,256,255,255, 
+255,254,254,254,253,253,252,252, 
+251,250,250,249,248,248,247,246, 
+245,244,243,242,241,240,239,238, 
+237,235,234,233,231,230,229,227, 
+226,224,223,221,220,218,216,215, 
+213,211,209,207,206,204,202,200, 
+198,196,194,192,190,188,185,183, 
+181,179,177,174,172,170,167,165, 
+162,160,157,155,152,150,147,145, 
+142,140,137,134,132,129,126,123, 
+121,118,115,112,109,107,104,101, 
+98,95,92,89,86,83,80,77, 
+74,71,68,65,62,59,56,53, 
+50,47,44,41,38,34,31,28, 
+25,22,19,16,13,9,6,3, 
+0,-3,-6,-9,-13,-16,-19,-22, 
+-25,-28,-31,-34,-38,-41,-44,-47, 
+-50,-53,-56,-59,-62,-65,-68,-71, 
+-74,-77,-80,-83,-86,-89,-92,-95, 
+-98,-101,-104,-107,-109,-112,-115,-118, 
+-121,-123,-126,-129,-132,-134,-137,-140, 
+-142,-145,-147,-150,-152,-155,-157,-160, 
+-162,-165,-167,-170,-172,-174,-177,-179, 
+-181,-183,-185,-188,-190,-192,-194,-196, 
+-198,-200,-202,-204,-206,-207,-209,-211, 
+-213,-215,-216,-218,-220,-221,-223,-224, 
+-226,-227,-229,-230,-231,-233,-234,-235, 
+-237,-238,-239,-240,-241,-242,-243,-244, 
+-245,-246,-247,-248,-248,-249,-250,-250, 
+-251,-252,-252,-253,-253,-254,-254,-254, 
+-255,-255,-255,-256,-256,-256,-256,-256, 
+-256,-256,-256,-256,-256,-256,-255,-255, 
+-255,-254,-254,-254,-253,-253,-252,-252, 
+-251,-250,-250,-249,-248,-248,-247,-246, 
+-245,-244,-243,-242,-241,-240,-239,-238, 
+-237,-235,-234,-233,-231,-230,-229,-227, 
+-226,-224,-223,-221,-220,-218,-216,-215, 
+-213,-211,-209,-207,-206,-204,-202,-200, 
+-198,-196,-194,-192,-190,-188,-185,-183, 
+-181,-179,-177,-174,-172,-170,-167,-165, 
+-162,-160,-157,-155,-152,-150,-147,-145, 
+-142,-140,-137,-134,-132,-129,-126,-123, 
+-121,-118,-115,-112,-109,-107,-104,-101, 
+-98,-95,-92,-89,-86,-83,-80,-77, 
+-74,-71,-68,-65,-62,-59,-56,-53, 
+-50,-47,-44,-41,-38,-34,-31,-28, 
+-25,-22,-19,-16,-13,-9,-6,-3, 
+};
 
 class finray {
   private:
@@ -216,7 +357,7 @@ class finray {
     }
 
     void actuatorautomatic(int amplitude){
-      amplitude = amplitude - 256;//take in value from LUT 512(0 to 512) and shift down to -255 to 255
+      //amplitude = amplitude - 256;//take in value from LUT 512(0 to 512) and shift down to -255 to 255
 
       if(amplitude > 0){
         actuatorpush(amplitude);
@@ -231,7 +372,7 @@ class finray {
     }
 
     void actuatorvariedamplitude(int amplitude, float multiplier){
-        amplitude = amplitude - 256;//take in value from LUT 512(0 to 512) and shift down to -255 to 255
+        //amplitude = amplitude - 256;//take in value from LUT 512(0 to 512) and shift down to -255 to 255
 
       if(amplitude > 0){
         actuatorpush(amplitude*multiplier);
@@ -244,21 +385,77 @@ class finray {
         actuatorpull(amplitude*multiplier);
       }
     }
-
-    //need function with automatic flazpping
 };
 
 class fin : public finray{ //class for entire fin
   private:
-    finray finray_array[4];
+    finray* finray_array[4];
+
+    bool directionAscending = 1;// 1 means going from finray 1 to 4. 0 vice versa.
+
+    uint8_t phase = 0;
+    uint8_t delay_us = 0;
+
+    uint16_t amplitude = 0;
+
+    float wavelength = 0;
+    float frequency = 0;
+
+    float phaseIncrement = 1;
+
+    float amplitudeMultiplier[4] = {1,1,1,1};
 
   public:
-    fin(finray fr1, finray fr2, finray fr3, finray fr4) : finray_array{fr1, fr2, fr3, fr4} {
+    fin(finray* fr1, finray* fr2, finray* fr3, finray* fr4) : finray_array{fr1, fr2, fr3, fr4} {
       // Constructor that takes four finray objects as arguments
+      alloff();
     }
 
+    void setdirection(bool direction) {
+      directionAscending= direction;
+    }
 
+    inline int wavelength2phase(int wave_in_cm){
+      return (3.3 *511/wave_in_cm);
+    }
+
+    void setphase(uint8_t LUTindex){
+      phase = LUTindex;
+    }
+
+    uint8_t getphase(){
+      return phase;
+    }
+
+    void setdelay_us(uint8_t timeinus){
+      delay_us = timeinus;
+    }
+    
+    void setwavelength(float wave_in_cm){
+      wavelength = wave_in_cm;
+    }
+
+    void setamplitudemultiplier(float multiplier) {
+      for (int i; i<4 ; i++){
+      amplitudeMultiplier[i]= multiplier;
+    }
+    }
+
+    void alloff(){// turn off all actuators in fin
+      for(int n = 0; n<=3; n++){
+        finray_array[n]->actuatoroff();
+      }
+    }
+
+    void setFinRayAmplitudes(){
+      for (int i =0; i<4;i++){
+          finray_array[i]->actuatorautomatic(amplitudeMultiplier[i] * sineLUT512[(amplitude + phase*i)%512]);
+      }
+      amplitude++;
+    }
 };
+
+
     
 inline int wavetophase(int wave_in_cm){
   return (3.3 *511/wave_in_cm);
@@ -320,85 +517,26 @@ void setup_HX711(){
 						// by the SCALE parameter set with set_scale
 }
 
+//RTOS Task Declartion
+void MyTask1(void* pvParameters);
+void MyTask2(void* pvParameters);
+
 void setup() {
   // put your setup code here, to run once:
 
   delay(2000);
   Serial.begin(500000);
 
+  xTaskCreate(MyTask1, "Right Fin", 100, NULL, 1, NULL);
+  xTaskCreate(MyTask2, "Left Fin", 100, NULL, 1, NULL);
+  vTaskStartScheduler();
+
   pinMode(LEDFORVIDEO,OUTPUT);
   pinMode(GREENLEDFORVIDEO,OUTPUT);
   pinMode(BLUELEDFORVIDEO,OUTPUT);
-
 }
 
-const int sineLUT512[] = //values between 0-512
-{
-256,259,262,265,269,272,275,278,
-281,284,287,290,294,297,300,303,
-306,309,312,315,318,321,324,327,
-330,333,336,339,342,345,348,351,
-354,357,360,363,365,368,371,374,
-377,379,382,385,388,390,393,396,
-398,401,403,406,408,411,413,416,
-418,421,423,426,428,430,433,435,
-437,439,441,444,446,448,450,452,
-454,456,458,460,462,463,465,467,
-469,471,472,474,476,477,479,480,
-482,483,485,486,487,489,490,491,
-493,494,495,496,497,498,499,500,
-501,502,503,504,504,505,506,506,
-507,508,508,509,509,510,510,510,
-511,511,511,512,512,512,512,512,
-512,512,512,512,512,512,511,511,
-511,510,510,510,509,509,508,508,
-507,506,506,505,504,504,503,502,
-501,500,499,498,497,496,495,494,
-493,491,490,489,487,486,485,483,
-482,480,479,477,476,474,472,471,
-469,467,465,463,462,460,458,456,
-454,452,450,448,446,444,441,439,
-437,435,433,430,428,426,423,421,
-418,416,413,411,408,406,403,401,
-398,396,393,390,388,385,382,379,
-377,374,371,368,365,363,360,357,
-354,351,348,345,342,339,336,333,
-330,327,324,321,318,315,312,309,
-306,303,300,297,294,290,287,284,
-281,278,275,272,269,265,262,259,
-256,253,250,247,243,240,237,234,
-231,228,225,222,218,215,212,209,
-206,203,200,197,194,191,188,185,
-182,179,176,173,170,167,164,161,
-158,155,152,149,147,144,141,138,
-135,133,130,127,124,122,119,116,
-114,111,109,106,104,101,99,96,
-94,91,89,86,84,82,79,77,
-75,73,71,68,66,64,62,60,
-58,56,54,52,50,49,47,45,
-43,41,40,38,36,35,33,32,
-30,29,27,26,25,23,22,21,
-19,18,17,16,15,14,13,12,
-11,10,9,8,8,7,6,6,
-5,4,4,3,3,2,2,2,
-1,1,1,0,0,0,0,0,
-0,0,0,0,0,0,1,1,
-1,2,2,2,3,3,4,4,
-5,6,6,7,8,8,9,10,
-11,12,13,14,15,16,17,18,
-19,21,22,23,25,26,27,29,
-30,32,33,35,36,38,40,41,
-43,45,47,49,50,52,54,56,
-58,60,62,64,66,68,71,73,
-75,77,79,82,84,86,89,91,
-94,96,99,101,104,106,109,111,
-114,116,119,122,124,127,130,133,
-135,138,141,144,147,149,152,155,
-158,161,164,167,170,173,176,179,
-182,185,188,191,194,197,200,203,
-206,209,212,215,218,222,225,228,
-231,234,237,240,243,247,250,253,
-};
+
 
 //------------------------------FIN DECLARATIONS------------------------------
 //right fin
@@ -412,7 +550,7 @@ finray R2(RIGHT_2_A, RIGHT_2_B, RIGHT_2_PWM);
 finray R3(RIGHT_3_A, RIGHT_3_B, RIGHT_3_PWM);
 finray R4(RIGHT_4_A, RIGHT_4_B, RIGHT_4_PWM);
 
-finray R[]={R1,R2,R3, R4};
+finray R[]={R1,R2,R3,R4};
 
 //left fin
 /*finray L1(36,37, 2);
@@ -1684,21 +1822,62 @@ void jellyfish_standard(finray fr, int num_cycles, int ontime, int offtime){
   }
 }
 
-float rightM[] = {0,0,1,1};
+float rightM[] = {.2,.2,.8,.8};//---> fish direction this way 13/10/23
+//float rightM[] = {.5,.5,.5,.5};
 //float leftM[] = {1,1,1,1};
 
+fin RightFin = {&R1,&R2,&R3,&R4};
+fin LeftFin = {&L1,&L2,&L3,&L4};
+
+TickType_t taskPeriod1 = pdMS_TO_TICKS(500); // 500 milliseconds period for 2 Hz
+TickType_t taskPeriod2 = pdMS_TO_TICKS(500); // 500 milliseconds period for 2 Hz
+
+void MyTask1(void* pvParameters){
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    RightFin.setFinRayAmplitudes();
+
+    while (1) {
+        // Generate and output signals for the first set
+        vTaskDelayUntil(&lastWakeTime, taskPeriod1);
+    }
+}
+
+void MyTask2(void* pvParameters){
+    TickType_t lastWakeTime = xTaskGetTickCount();
+    LeftFin.setFinRayAmplitudes();
+
+    while (1) {
+        // Generate and output signals for the first set
+        vTaskDelayUntil(&lastWakeTime, taskPeriod1);
+    }
+}
 
 void loop() {
 
   // put your main code here, to run repeatedly:
-
   //initialsetup();
+  /*
+  for (int k = 0; k < 15; k++){
+    undulationLUTfloat(frequencytoMicroSec(1.5),230);
+    flashRED(5);
+  }
+
+  for (int k = 0; k <8; k++){
+    ReverseUndulationLUT(wavetophase(26.25),frequencytoMicroSec(2));
+  }
+
+  for (int k = 0; k <6; k++){
+    turnright(wavetophase(26.25),frequencytoMicroSec(2));
+  }*/
+
+
+
 
 
   //leftundulation(60,1000);
   //for (int i = 10.5; i <= 42; i += 5.25){
   //  for (int j = 0; j < 10; j++){
-  //ReverseUndulationLUT(wavetophase(26.25),frequencytoMicroSec(2.5));
+  
 
 
 
@@ -1755,7 +1934,7 @@ void loop() {
   //wavelength_frequency_sweep_turn(42,42,5.25,0.5,5,0.5,6);
         //Lateral
   //frequency_sweep_flapping(1,14,0.5,5);
-        //Banking
+        //Banking(Rolling)
   //pathDemoBank();
         //Diagonal
   //diagonal();
@@ -1763,7 +1942,8 @@ void loop() {
   //floatsink();
 
   //----------------------ENVELOPE-----------
-ReverseundulationLUTmultiplier(wavetophase(26.25),frequencytoMicroSec(2.5),rightM,rightM);
+  //ReverseundulationLUTmultiplier(wavetophase(26.25),frequencytoMicroSec(3),rightM,rightM);
+  //ReverseUndulationLUT(wavetophase(26.25),frequencytoMicroSec(2.5));
 
   //possibly ran this at 2.5Hz
 
@@ -1833,16 +2013,4 @@ ReverseundulationLUTmultiplier(wavetophase(26.25),frequencytoMicroSec(2.5),right
 
   //jellyfish_standard(R4,3,500, 1000);
   //delay(3000);
-  /*for(int i = 255; i>0;i--){
-    R4.actuatorpull(i);
-    delayMicroseconds(1200);
-  }
-    R4.actuatoroff();
-    delay(200);
-    */
-
-   /*R4.actuatorpull();
-   delay(300);
-   R4.actuatoroff();
-   delay(150);*/
 }
